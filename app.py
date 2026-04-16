@@ -105,8 +105,8 @@ def translate_script(script_viet):
         return f"[翻译失败: {e}]"
 
 # ==================== 生成函数 ====================
-def generate_script(persona, vibe, product_hook):
-    """生成脚本"""
+def generate_script(persona, vibe, product_hook, duration_seconds=15):
+    """生成脚本，带时长控制"""
     client = get_client()
     if not client:
         return None
@@ -117,7 +117,27 @@ def generate_script(persona, vibe, product_hook):
     if not template:
         return None
     
-    full_prompt = template + f"\n\n【本次卖点】{product_hook}\n【CTA】下载APP\n\n只输出脚本正文，不要解释。"
+    # 根据时长估算字数（越南语正常语速约 2.5-3 字/秒）
+    estimated_words = int(duration_seconds * 2.5)
+    word_range = f"{max(10, estimated_words - 8)}-{estimated_words + 8}"
+    
+    full_prompt = template + f"""
+
+【本次生成要求 - 非常重要】
+⏱️ 目标时长：{duration_seconds}秒
+📝 目标字数：约{word_range}个越南语单词
+💎 产品卖点：{product_hook}
+🔗 CTA：下载APP（越南语）
+
+【时长控制规则】
+- {duration_seconds}秒的脚本，正常语速约 {estimated_words} 个单词
+- 如果生成的脚本太长，请删减次要内容
+- 如果太短，请增加细节或重复强调关键信息
+- 保持人设和语气不变
+
+请严格按照 {duration_seconds}秒 的长度生成越南语脚本。
+只输出脚本正文，不要任何解释。
+"""
     
     try:
         response = client.chat.completions.create(
@@ -126,11 +146,21 @@ def generate_script(persona, vibe, product_hook):
             temperature=random.uniform(0.9, 1.3),
             frequency_penalty=random.uniform(0.3, 0.7),
             presence_penalty=random.uniform(0.3, 0.7),
-            max_tokens=300
+            max_tokens=400  # 增加到 400，支持 60 秒脚本
         )
         script_viet = response.choices[0].message.content.strip()
+        
+        # 估算实际时长
+        word_count = len(script_viet.split())
+        estimated_duration = round(word_count / 2.5)
+        
         translation = translate_script(script_viet)
-        return {"viet": script_viet, "trans": translation}
+        return {
+            "viet": script_viet, 
+            "trans": translation,
+            "word_count": word_count,
+            "estimated_duration": estimated_duration
+        }
     except Exception as e:
         st.error(f"生成失败: {e}")
         return None
@@ -391,7 +421,21 @@ with st.sidebar:
     vibe = st.selectbox("🎭 语气", config["personas"][persona]["vibes"])
     product_hook = st.selectbox("💎 卖点", config["product_hooks"])
     
+    # 时长设置
+    st.subheader("⏱️ 时长设置")
+    duration = st.selectbox(
+        "脚本时长",
+        ["15秒", "30秒", "45秒", "60秒"],
+        index=0,
+        help="选择目标时长，AI 会尽量控制在这个长度"
+    )
+    
     num_scripts = st.slider("📝 生成数量", 1, 5, 1)
+    
+    # 时长说明
+    duration_map = {"15秒": 15, "30秒": 30, "45秒": 45, "60秒": 60}
+    target_seconds = duration_map.get(duration, 15)
+    st.caption(f"💡 目标时长 {target_seconds} 秒，约 {int(target_seconds * 2.5)} 个越南语单词")
     
     st.divider()
     
